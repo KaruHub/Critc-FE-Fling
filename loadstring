@@ -1,0 +1,228 @@
+-- FE Fling Script with Anti Self-Fling
+-- This script makes your character spin at high speeds to fling other players without affecting yourself
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- Settings
+local settings = {
+    flingSpeeds = {
+        rotationSpeed = 100, -- How fast to rotate
+        velocity = 500,      -- Velocity multiplier
+        maxForce = 9999,     -- Maximum force multiplier
+        targetCycleTime = 3  -- Time in seconds before switching targets
+    },
+    enabled = true,
+    noClip = true            -- Enable no-clip to prevent getting stuck
+}
+
+-- Notification function
+local function notify(text)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "FE Fling Script";
+        Text = text;
+        Duration = 3;
+    })
+end
+
+-- Check if the character has a humanoid root part
+if not Character:FindFirstChild("HumanoidRootPart") then
+    notify("Character missing HumanoidRootPart. Try respawning.")
+    return
+end
+
+local HRP = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
+
+-- Anti-fling protection - Store original CFrame and restore it frequently
+local originalPosition = HRP.CFrame
+
+-- Set camera to first person to reduce motion sickness
+local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+if Humanoid then
+    Humanoid.CameraOffset = Vector3.new(0, 0, 0)
+    Humanoid.AutoRotate = false -- Prevent your character from automatically turning
+end
+
+-- Variables for flinging
+local targetPlayer = nil
+local targetCycleTimer = 0
+local spinVelocity = Vector3.new(0, 0, 0)
+
+-- Create a new body velocity
+local bodyVelocity = Instance.new("BodyVelocity")
+bodyVelocity.MaxForce = Vector3.new(settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce)
+bodyVelocity.P = 1250
+bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+bodyVelocity.Parent = HRP
+
+-- Create a new body angular velocity for spinning
+local bodyAngularVelocity = Instance.new("BodyAngularVelocity")
+bodyAngularVelocity.AngularVelocity = Vector3.new(0, settings.flingSpeeds.rotationSpeed, 0)
+bodyAngularVelocity.MaxTorque = Vector3.new(settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce)
+bodyAngularVelocity.P = 1250
+bodyAngularVelocity.Parent = HRP
+
+-- Create a new body gyro to stabilize your character
+local bodyGyro = Instance.new("BodyGyro")
+bodyGyro.MaxTorque = Vector3.new(settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce)
+bodyGyro.P = 5000
+bodyGyro.D = 600
+bodyGyro.CFrame = HRP.CFrame
+bodyGyro.Parent = HRP
+
+-- Anchor setup for anti-fling stability
+local function createAntiFlingSphere()
+    local antiFlingSphere = Instance.new("Part")
+    antiFlingSphere.Name = "AntiFlingSphere"
+    antiFlingSphere.Size = Vector3.new(10, 10, 10)
+    antiFlingSphere.Transparency = 1
+    antiFlingSphere.CanCollide = false
+    antiFlingSphere.Anchored = true
+    antiFlingSphere.Position = HRP.Position
+    
+    local weld = Instance.new("Weld")
+    weld.Part0 = antiFlingSphere
+    weld.Part1 = HRP
+    weld.C0 = CFrame.new()
+    weld.Parent = antiFlingSphere
+    
+    antiFlingSphere.Parent = workspace
+    
+    return antiFlingSphere
+end
+
+local antiFlingSphere = createAntiFlingSphere()
+
+-- No-clip function to prevent getting stuck
+local function activateNoClip()
+    if settings.noClip then
+        for _, part in pairs(Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end
+
+-- Function to get the next target
+local function getNextTarget()
+    local playerList = Players:GetPlayers()
+    local validTargets = {}
+    
+    for _, player in pairs(playerList) do
+        if player ~= LocalPlayer then
+            local targetCharacter = player.Character
+            if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
+                table.insert(validTargets, player)
+            end
+        end
+    end
+    
+    if #validTargets > 0 then
+        return validTargets[math.random(1, #validTargets)]
+    end
+    return nil
+end
+
+-- Toggle function with keyboard shortcut
+local function toggleFling()
+    settings.enabled = not settings.enabled
+    if settings.enabled then
+        notify("Fling Enabled")
+        bodyVelocity.Parent = HRP
+        bodyAngularVelocity.Parent = HRP
+        bodyGyro.Parent = HRP
+        antiFlingSphere.Parent = workspace
+    else
+        notify("Fling Disabled")
+        bodyVelocity.Parent = nil
+        bodyAngularVelocity.Parent = nil
+        bodyGyro.Parent = nil
+        antiFlingSphere.Parent = nil
+        
+        -- Reset character position
+        for _, v in pairs(Character:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = true
+            end
+        end
+    end
+end
+
+-- Connect toggle to a key press (X key)
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.X then
+        toggleFling()
+    end
+end)
+
+-- Connect reset position to a key press (Z key)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Z then
+        -- Reset position if you get flung
+        if Character and Character:FindFirstChild("HumanoidRootPart") then
+            HRP.CFrame = CFrame.new(HRP.Position) * CFrame.Angles(0, math.rad(HRP.Orientation.Y), 0)
+            HRP.Velocity = Vector3.new(0, 0, 0)
+            HRP.RotVelocity = Vector3.new(0, 0, 0)
+            notify("Position Reset")
+        end
+    end
+end)
+
+-- Main loop
+RunService.Heartbeat:Connect(function(deltaTime)
+    if not settings.enabled then return end
+    
+    -- Activate No-Clip
+    activateNoClip()
+    
+    -- Keep your character stable
+    bodyGyro.CFrame = CFrame.new(HRP.Position) * CFrame.Angles(0, math.rad(HRP.Orientation.Y), 0)
+    
+    -- Update anti-fling sphere position
+    antiFlingSphere.Position = HRP.Position
+    
+    -- Cycle targets periodically
+    targetCycleTimer = targetCycleTimer + deltaTime
+    if targetCycleTimer >= settings.flingSpeeds.targetCycleTime or targetPlayer == nil or 
+       not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        targetPlayer = getNextTarget()
+        targetCycleTimer = 0
+        
+        if targetPlayer then
+            notify("Now targeting: " .. targetPlayer.Name)
+        else
+            notify("No valid targets found")
+        end
+    end
+    
+    -- If we have a target, move toward them
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local targetHRP = targetPlayer.Character.HumanoidRootPart
+        local direction = (targetHRP.Position - HRP.Position).Unit
+        bodyVelocity.Velocity = direction * settings.flingSpeeds.velocity
+        
+        -- Increase spin speed when near target
+        local distance = (targetHRP.Position - HRP.Position).Magnitude
+        if distance < 10 then
+            bodyAngularVelocity.AngularVelocity = Vector3.new(
+                settings.flingSpeeds.rotationSpeed * 2,
+                settings.flingSpeeds.rotationSpeed * 2,
+                settings.flingSpeeds.rotationSpeed * 2
+            )
+        else
+            bodyAngularVelocity.AngularVelocity = Vector3.new(
+                settings.flingSpeeds.rotationSpeed,
+                settings.flingSpeeds.rotationSpeed,
+                settings.flingSpeeds.rotationSpeed
+            )
+        end
+    end
+end)
+
+-- Initial notification
+notify("FE Fling Script Loaded! Press X to toggle, Z to reset position")
