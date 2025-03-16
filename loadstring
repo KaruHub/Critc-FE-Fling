@@ -1,224 +1,114 @@
--- FE Fling Script - No Attachment Version
--- Allows you to move freely while flinging others
-
+-- Simple FE Fling Script
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart")
 
--- Settings
-local settings = {
-    flingSpeeds = {
-        rotationSpeed = 100,  -- How fast to rotate
-        velocity = 500,       -- Velocity multiplier
-        maxForce = 9999,      -- Maximum force multiplier
-        flingTime = 2,        -- Time to fling each player before moving to next
-    },
-    enabled = false,          -- Start disabled so player can move
-    noClip = true,            -- Enable no-clip to prevent getting stuck
-    maxRange = 20             -- Maximum range to target players
-}
+-- Simple settings
+local flingVelocity = 2500000    -- How fast to fling
+local rotationSpeed = 10000000    -- How fast to spin
+local targetChangeTime = 3    -- Time between changing targets
+local enabled = false         -- Start disabled
+local targetPlayer = nil      -- Current target
+local timer = 0               -- Target switch timer
 
--- Notification function
+-- Create spin and velocity forces
+local angularVelocity = Instance.new("BodyAngularVelocity")
+angularVelocity.AngularVelocity = Vector3.new(0, rotationSpeed, 0)
+angularVelocity.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+angularVelocity.P = 1000000
+
+local velocity = Instance.new("BodyVelocity")
+velocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+velocity.P = 1000000
+velocity.Velocity = Vector3.new(0, 0, 0)
+
+-- Simple notification
 local function notify(text)
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "FE Fling Script";
-        Text = text;
-        Duration = 3;
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "Fling Script",
+        Text = text,
+        Duration = 3
     })
 end
 
--- Check if the character has a humanoid root part
-if not Character:FindFirstChild("HumanoidRootPart") then
-    notify("Character missing HumanoidRootPart. Try respawning.")
-    return
-end
-
-local HRP = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:WaitForChild("Humanoid")
-
--- Variables for flinging
-local targetPlayer = nil
-local flingTimer = 0
-local originalWalkSpeed = Humanoid.WalkSpeed
-
--- Create a new body velocity
-local bodyVelocity = Instance.new("BodyVelocity")
-bodyVelocity.MaxForce = Vector3.new(settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce)
-bodyVelocity.P = 1250
-bodyVelocity.Velocity = Vector3.new(0, 0, 0)
--- Don't parent yet, start disabled
-
--- Create a new body angular velocity for spinning
-local bodyAngularVelocity = Instance.new("BodyAngularVelocity")
-bodyAngularVelocity.AngularVelocity = Vector3.new(settings.flingSpeeds.rotationSpeed, settings.flingSpeeds.rotationSpeed, settings.flingSpeeds.rotationSpeed)
-bodyAngularVelocity.MaxTorque = Vector3.new(settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce, settings.flingSpeeds.maxForce)
-bodyAngularVelocity.P = 1250
--- Don't parent yet, start disabled
-
--- No-clip function to prevent getting stuck
-local function activateNoClip()
-    if settings.noClip and settings.enabled then
-        for _, part in pairs(Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.CanCollide = false
-            end
-        end
-    else
-        for _, part in pairs(Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.CanCollide = true
-            end
-        end
-    end
-end
-
--- Function to get the next target
-local function getNextTarget()
-    local playerList = Players:GetPlayers()
-    local validTargets = {}
+-- Get closest player to fling
+local function getTarget()
+    local closest = nil
+    local maxDist = math.huge
     
-    for _, player in pairs(playerList) do
+    for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            local targetCharacter = player.Character
-            if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
-                local distance = (targetCharacter.HumanoidRootPart.Position - HRP.Position).Magnitude
-                if distance <= settings.maxRange then
-                    table.insert(validTargets, player)
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local dist = (char.HumanoidRootPart.Position - HRP.Position).Magnitude
+                if dist < maxDist then
+                    maxDist = dist
+                    closest = player
                 end
             end
         end
     end
     
-    if #validTargets > 0 then
-        return validTargets[math.random(1, #validTargets)]
-    end
-    return nil
+    return closest
 end
 
--- Toggle function with keyboard shortcut
-local function toggleFling()
-    settings.enabled = not settings.enabled
-    if settings.enabled then
-        notify("Fling Enabled - Hold F to fling")
-        originalWalkSpeed = Humanoid.WalkSpeed
-    else
-        notify("Fling Disabled")
-        bodyVelocity.Parent = nil
-        bodyAngularVelocity.Parent = nil
-        Humanoid.WalkSpeed = originalWalkSpeed
-        
-        -- Reset character collision
-        for _, v in pairs(Character:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.CanCollide = true
-            end
-        end
-    end
-end
-
--- Active fling function (only active while key is held)
-local function activeFling(active)
-    if not settings.enabled then return end
+-- Toggle function (X key)
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+    if processed then return end
     
-    if active then
-        -- Activate fling physics
-        bodyVelocity.Parent = HRP
-        bodyAngularVelocity.Parent = HRP
-        Humanoid.WalkSpeed = 0 -- Temporarily disable walking
+    if input.KeyCode == Enum.KeyCode.X then
+        enabled = not enabled
         
-        -- Get a target if none exists
-        if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            targetPlayer = getNextTarget()
-            if targetPlayer then
-                notify("Targeting: " .. targetPlayer.Name)
-            end
-        end
-    else
-        -- Deactivate fling physics
-        bodyVelocity.Parent = nil
-        bodyAngularVelocity.Parent = nil
-        Humanoid.WalkSpeed = originalWalkSpeed -- Restore walking
-    }
-end
-
--- Connect toggle to X key press
-local UserInputService = game:GetService("UserInputService")
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed then
-        if input.KeyCode == Enum.KeyCode.X then
-            toggleFling()
-        elseif input.KeyCode == Enum.KeyCode.F then
-            activeFling(true)
+        if enabled then
+            notify("Fling Enabled")
+            angularVelocity.Parent = HRP
+            velocity.Parent = HRP
+            targetPlayer = getTarget()
+        else
+            notify("Fling Disabled")
+            angularVelocity.Parent = nil
+            velocity.Parent = nil
         end
     end
 end)
 
--- Detect when fling key is released
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
-        activeFling(false)
+-- Main fling loop
+RunService.Heartbeat:Connect(function(dt)
+    if not enabled then return end
+    
+    -- No-clip through objects
+    for _, part in pairs(Character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+    
+    -- Update timer and change targets if needed
+    timer = timer + dt
+    if timer >= targetChangeTime or not targetPlayer or not targetPlayer.Character then
+        targetPlayer = getTarget()
+        timer = 0
+    end
+    
+    -- If we have a target, fling at them
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local targetRoot = targetPlayer.Character.HumanoidRootPart
+        local direction = (targetRoot.Position - HRP.Position).Unit
+        velocity.Velocity = direction * flingVelocity
     end
 end)
 
--- Main loop
-RunService.Heartbeat:Connect(function(deltaTime)
-    if not settings.enabled then return end
-    
-    -- Apply no-clip
-    activateNoClip()
-    
-    -- Only proceed with fling logic if physics objects are parented
-    if bodyVelocity.Parent == HRP then
-        -- Update the fling timer
-        flingTimer = flingTimer + deltaTime
-        
-        -- Switch targets when the timer expires
-        if flingTimer >= settings.flingSpeeds.flingTime or targetPlayer == nil or 
-           not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            
-            targetPlayer = getNextTarget()
-            flingTimer = 0
-            
-            if targetPlayer then
-                notify("Now targeting: " .. targetPlayer.Name)
-            end
-        end
-        
-        -- If we have a target, actively fling them
-        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local targetHRP = targetPlayer.Character.HumanoidRootPart
-            local direction = (targetHRP.Position - HRP.Position).Unit
-            
-            -- Set velocity toward target
-            bodyVelocity.Velocity = direction * settings.flingSpeeds.velocity
-            
-            -- Increase spin speed based on proximity
-            local distance = (targetHRP.Position - HRP.Position).Magnitude
-            local speedMultiplier = math.max(1, 5 - (distance / 5))
-            
-            bodyAngularVelocity.AngularVelocity = Vector3.new(
-                settings.flingSpeeds.rotationSpeed * speedMultiplier,
-                settings.flingSpeeds.rotationSpeed * speedMultiplier,
-                settings.flingSpeeds.rotationSpeed * speedMultiplier
-            )
-        end
-    end
-end)
-
--- Character respawn handler
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    Character = newCharacter
+-- Fix for character respawning
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    Character = newChar
     HRP = Character:WaitForChild("HumanoidRootPart")
-    Humanoid = Character:WaitForChild("Humanoid")
-    originalWalkSpeed = Humanoid.WalkSpeed
     
-    -- Reset fling physics
-    if settings.enabled then
-        bodyVelocity.Parent = nil
-        bodyAngularVelocity.Parent = nil
+    if enabled then
+        angularVelocity.Parent = HRP
+        velocity.Parent = HRP
     end
-})
+end)
 
--- Initial notification
-notify("FE Fling Script Loaded! Press X to toggle, hold F to fling")
+notify("Simple fling script loaded. Press X to toggle")
