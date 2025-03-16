@@ -9,10 +9,10 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 -- Settings
 local settings = {
     flingSpeeds = {
-        rotationSpeed = 100, -- How fast to rotate
-        velocity = 500,      -- Velocity multiplier
-        maxForce = 9999,     -- Maximum force multiplier
-        targetCycleTime = 3  -- Time in seconds before switching targets
+        rotationSpeed = 1000000000, -- How fast to rotate
+        velocity = 500000000000000,      -- Velocity multiplier
+        maxForce = 999900000000000000000000,     -- Maximum force multiplier
+        targetCycleTime = 2  -- Time in seconds before switching targets
     },
     enabled = true,
     noClip = true            -- Enable no-clip to prevent getting stuck
